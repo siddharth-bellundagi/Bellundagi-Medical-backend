@@ -34,6 +34,14 @@ const billSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    customerName: {
+      type: String,
+      default: "Walk-in Customer",
+    },
+    customerPhone: {
+      type: String,
+      default: "",
+    },
     items: [billItemSchema],
     subtotal: {
       type: Number,

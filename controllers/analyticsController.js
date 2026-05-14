@@ -28,6 +28,7 @@ export const salesSummary = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
 // @desc   Daily sales data
 // @route  GET /api/analytics/daily-sales
 // @access Private (Admin)
@@ -64,6 +65,7 @@ export const dailySales = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
 // @desc   Top selling medicines
 // @route  GET /api/analytics/top-medicines
 // @access Private (Admin)
@@ -92,6 +94,111 @@ export const topMedicines = async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error("TOP MEDICINES ERROR:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// @desc   Monthly comparison (current vs previous month)
+// @route  GET /api/analytics/monthly-comparison
+// @access Private (Admin)
+export const monthlyComparison = async (req, res) => {
+  try {
+    const now = new Date();
+
+    // Current month range
+    const currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const currentEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    // Previous month range
+    const prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+    const [currentBills, prevBills] = await Promise.all([
+      Bill.find({ createdAt: { $gte: currentStart, $lte: currentEnd } }),
+      Bill.find({ createdAt: { $gte: prevStart, $lte: prevEnd } }),
+    ]);
+
+    const currentSales = currentBills.reduce((s, b) => s + b.totalAmount, 0);
+    const prevSales = prevBills.reduce((s, b) => s + b.totalAmount, 0);
+
+    const salesChange = prevSales > 0
+      ? (((currentSales - prevSales) / prevSales) * 100).toFixed(1)
+      : currentSales > 0 ? 100 : 0;
+
+    const billsChange = prevBills.length > 0
+      ? (((currentBills.length - prevBills.length) / prevBills.length) * 100).toFixed(1)
+      : currentBills.length > 0 ? 100 : 0;
+
+    const currentAvg = currentBills.length > 0 ? Math.round(currentSales / currentBills.length) : 0;
+    const prevAvg = prevBills.length > 0 ? Math.round(prevSales / prevBills.length) : 0;
+
+    const avgChange = prevAvg > 0
+      ? (((currentAvg - prevAvg) / prevAvg) * 100).toFixed(1)
+      : currentAvg > 0 ? 100 : 0;
+
+    res.json({
+      current: {
+        month: currentStart.toLocaleString("default", { month: "long", year: "numeric" }),
+        sales: currentSales,
+        bills: currentBills.length,
+        avgBillValue: currentAvg,
+      },
+      previous: {
+        month: prevStart.toLocaleString("default", { month: "long", year: "numeric" }),
+        sales: prevSales,
+        bills: prevBills.length,
+        avgBillValue: prevAvg,
+      },
+      changes: {
+        sales: Number(salesChange),
+        bills: Number(billsChange),
+        avgBillValue: Number(avgChange),
+      },
+    });
+  } catch (error) {
+    console.error("MONTHLY COMPARISON ERROR:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// @desc   Medicine-wise sales breakdown
+// @route  GET /api/analytics/medicine-sales?startDate=&endDate=
+// @access Private (Admin)
+export const medicineSales = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const filter = {};
+
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
+
+    const bills = await Bill.find(filter);
+
+    const medMap = {};
+
+    bills.forEach((bill) => {
+      bill.items.forEach((item) => {
+        if (!medMap[item.name]) {
+          medMap[item.name] = { name: item.name, qtySold: 0, revenue: 0, billCount: 0 };
+        }
+        medMap[item.name].qtySold += item.quantity;
+        medMap[item.name].revenue += item.totalPrice;
+        medMap[item.name].billCount += 1;
+      });
+    });
+
+    const result = Object.values(medMap).sort((a, b) => b.revenue - a.revenue);
+
+    res.json(result);
+  } catch (error) {
+    console.error("MEDICINE SALES ERROR:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
