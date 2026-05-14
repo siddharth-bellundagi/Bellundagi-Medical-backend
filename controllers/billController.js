@@ -6,7 +6,7 @@ import Medicine from "../models/Medicine.js";
 // @access Private (Admin)
 export const createBill = async (req, res) => {
   try {
-    const { items, discount } = req.body;
+    const { items, discount, customerName, customerPhone } = req.body;
 
     if (!items || items.length === 0) {
       return res.status(400).json({ message: "No bill items" });
@@ -53,6 +53,8 @@ export const createBill = async (req, res) => {
 
     const bill = await Bill.create({
       billNumber: nextBillNumber,
+      customerName: customerName || "Walk-in Customer",
+      customerPhone: customerPhone || "",
       items: billItems,
       subtotal,
       discount: discount || 0,
@@ -65,12 +67,38 @@ export const createBill = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-// @desc   Get all bills
-// @route  GET /api/bills
+// @desc   Get all bills (with optional search/filter)
+// @route  GET /api/bills?search=&startDate=&endDate=
 // @access Private (Admin)
 export const getBills = async (req, res) => {
   try {
-    const bills = await Bill.find().sort({ createdAt: -1 });
+    const { search, startDate, endDate } = req.query;
+    const filter = {};
+
+    // Date range filter
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
+
+    // Search filter — customer name, phone, or bill number
+    if (search) {
+      const searchNum = parseInt(search);
+      filter.$or = [
+        { customerName: { $regex: search, $options: "i" } },
+        { customerPhone: { $regex: search, $options: "i" } },
+      ];
+      if (!isNaN(searchNum)) {
+        filter.$or.push({ billNumber: searchNum });
+      }
+    }
+
+    const bills = await Bill.find(filter).sort({ createdAt: -1 });
     res.json(bills);
   } catch (error) {
     console.error("GET BILLS ERROR:", error);
